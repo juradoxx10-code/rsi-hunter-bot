@@ -11,21 +11,24 @@ RSI_OVERSOLD     = int(os.getenv("RSI_OS", "20"))
 CHECK_INTERVAL   = int(os.getenv("CHECK_INTERVAL", "60"))
 RSI_PERIOD       = 14
 
+# Solo pares disponibles en Futuros de Binance (USDT-M Perpetual)
 PAIRS = [
-    "BTCUSDT","ETHUSDT","BNBUSDT","SOLUSDT","XRPUSDT","DOGEUSDT","ADAUSDT",
-    "AVAXUSDT","SHIBUSDT","DOTUSDT","LINKUSDT","TRXUSDT","MATICUSDT",
-    "LTCUSDT","BCHUSDT","UNIUSDT","ATOMUSDT","XLMUSDT","ETCUSDT",
-    "FILUSDT","APTUSDT","ARBUSDT","OPUSDT","NEARUSDT","INJUSDT",
-    "SUIUSDT","TIAUSDT","SEIUSDT","PEPEUSDT","WIFUSDT","FETUSDT","RNDRУСДТ",
-    "GRTUSDT","SANDUSDT","AXSUSDT","MANAUSDT","CHZUSDT","ENJUSDT",
-    "GALAUSDT","IMXUSDT","LDOUSDT","AAVEUSDT","MKRUSDT","SNXUSDT",
-    "CRVUSDT","COMPUSDT","1INCHUSDT","BALUSDT","YFIUSDT","SUSHIUSDT",
-    "ALGOUSDT","EGLDUSDT","HBARUSDT","ICPUSDT","VETUSDT","THETAUSDT",
-    "FTMUSDT","ONEUSDT","ZILUSDT","NEOUSDT","EOSUSDT","XTZUSDT",
-    "DASHUSDT","ZECUSDT","XMRUSDT","KAVAUSDT","FLOWUSDT","MINAUSDT",
-    "IOTXUSDT","CELOUSDT","ANKRUSDT","STXUSDT","KSMUSDT","QTUMUSDT",
-    "BANDUSDT","OCEANUSDT","UMAUSDT","RENUSDT","MASKUSDT","GMXUSDT",
-    "DYDXUSDT","RAYUSDT","API3USDT","CELRUSDT","SKLUSDT","STORJUSDT",
+    "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
+    "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "SHIBUSDT", "DOTUSDT",
+    "LINKUSDT", "TRXUSDT", "MATICUSDT", "LTCUSDT", "BCHUSDT",
+    "UNIUSDT", "ATOMUSDT", "XLMUSDT", "ETCUSDT", "FILUSDT",
+    "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT", "INJUSDT",
+    "SUIUSDT", "TIAUSDT", "SEIUSDT", "PEPEUSDT", "WIFUSDT",
+    "FETUSDT", "RNDRUSDT", "GRTUSDT", "SANDUSDT", "AXSUSDT",
+    "MANAUSDT", "CHZUSDT", "ENJUSDT", "GALAUSDT", "IMXUSDT",
+    "LDOUSDT", "AAVEUSDT", "MKRUSDT", "SNXUSDT", "CRVUSDT",
+    "COMPUSDT", "1INCHUSDT", "YFIUSDT", "SUSHIUSDT", "ALGOUSDT",
+    "EGLDUSDT", "HBARUSDT", "ICPUSDT", "VETUSDT", "THETAUSDT",
+    "FTMUSDT", "ONEUSDT", "ZILUSDT", "NEOUSDT", "EOSUSDT",
+    "XTZUSDT", "DASHUSDT", "ZECUSDT", "XMRUSDT", "KAVAUSDT",
+    "FLOWUSDT", "MINAUSDT", "IOTXUSDT", "ANKRUSDT", "STXUSDT",
+    "KSMUSDT", "BANDUSDT", "OCEANUSDT", "MASKUSDT", "GMXUSDT",
+    "DYDXUSDT", "RAYUSDT", "SKLUSDT", "STORJUSDT",
 ]
 
 last_state = {}
@@ -49,11 +52,11 @@ def calc_rsi(closes, period=14):
     return 100.0 - (100.0 / (1.0 + ag / al))
 
 def fetch_rsi_binance(symbol):
-    """Obtiene velas de Binance y calcula RSI. Sin API key necesaria."""
-    url = "https://api.binance.us/api/v3/klines"
+    """Obtiene velas de Binance Futuros (5m) y calcula RSI. Sin API key necesaria."""
+    url = "https://fapi.binance.com/fapi/v1/klines"  # Endpoint de Futuros
     params = {
         "symbol": symbol,
-        "interval": "1m",
+        "interval": "5m",  # ← 5 minutos
         "limit": 100
     }
     try:
@@ -63,7 +66,7 @@ def fetch_rsi_binance(symbol):
             time.sleep(10)
             return None, None
         if r.status_code == 400:
-            log.warning(f"Par no existe en Binance: {symbol}")
+            log.warning(f"Par no existe en Futuros Binance: {symbol}")
             return None, None
         r.raise_for_status()
         klines = r.json()
@@ -131,7 +134,7 @@ def check_coins():
     log.info(f"Ciclo completo. Alertas totales: {alert_count}")
 
 def main():
-    log.info("RSI HUNTER BOT — Binance Edition")
+    log.info("RSI HUNTER BOT — Binance Futuros Edition")
     if "PON_TU" in TELEGRAM_TOKEN:
         log.error("❌ Falta configurar TELEGRAM_TOKEN y TELEGRAM_CHAT_ID")
         return
@@ -140,9 +143,10 @@ def main():
     send_telegram(
         f"🚀 <b>RSI HUNTER BOT INICIADO</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📡 Fuente: <b>Binance</b>\n"
+        f"📡 Fuente: <b>Binance Futuros (USDT-M)</b>\n"
         f"🔍 Monitoreando: <b>{len(PAIRS)} pares</b>\n"
         f"⚙️ RSI sobreventa ≤ <b>{RSI_OVERSOLD}</b> | sobrecompra ≥ <b>{RSI_OVERBOUGHT}</b>\n"
+        f"⏱️ Velas: <b>5 minutos</b>\n"
         f"🔄 Intervalo: cada <b>{CHECK_INTERVAL}s</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
         f"📋 {pairs_list}"
