@@ -51,34 +51,56 @@ def calc_rsi(closes, period=14):
     if al == 0: return 100.0
     return 100.0 - (100.0 / (1.0 + ag / al))
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "application/json",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "X-Forwarded-For": "8.8.8.8",
+}
+
+# Endpoints en orden de prioridad (fallback automático)
+ENDPOINTS = [
+    "https://fapi.binance.com/fapi/v1/klines",
+    "https://api.binance.com/api/v3/klines",
+    "https://api1.binance.com/api/v3/klines",
+    "https://api2.binance.com/api/v3/klines",
+]
+
 def fetch_rsi_binance(symbol):
-    """Obtiene velas de Binance Futuros (5m) y calcula RSI. Sin API key necesaria."""
-    url = "https://fapi.binance.com/fapi/v1/klines"  # Endpoint de Futuros
+    """Obtiene velas de Binance (5m) con headers y fallback automático."""
     params = {
         "symbol": symbol,
-        "interval": "5m",  # ← 5 minutos
+        "interval": "5m",
         "limit": 100
     }
-    try:
-        r = requests.get(url, params=params, timeout=10)
-        if r.status_code == 429:
-            log.warning("Rate limit Binance — esperando 10s")
-            time.sleep(10)
-            return None, None
-        if r.status_code == 400:
-            log.warning(f"Par no existe en Futuros Binance: {symbol}")
-            return None, None
-        r.raise_for_status()
-        klines = r.json()
-        closes = [float(k[4]) for k in klines]
-        if len(closes) < RSI_PERIOD + 1:
-            return None, None
-        rsi = calc_rsi(closes)
-        price = closes[-1]
-        return rsi, price
-    except Exception as e:
-        log.error(f"Error {symbol}: {e}")
-        return None, None
+    for url in ENDPOINTS:
+        try:
+            r = requests.get(url, params=params, headers=HEADERS, timeout=10)
+            if r.status_code == 451:
+                log.warning(f"Bloqueo geo en {url} — probando siguiente endpoint...")
+                continue
+            if r.status_code == 429:
+                log.warning("Rate limit Binance — esperando 10s")
+                time.sleep(10)
+                return None, None
+            if r.status_code == 400:
+                log.warning(f"Par no existe: {symbol}")
+                return None, None
+            r.raise_for_status()
+            klines = r.json()
+            closes = [float(k[4]) for k in klines]
+            if len(closes) < RSI_PERIOD + 1:
+                return None, None
+            rsi = calc_rsi(closes)
+            price = closes[-1]
+            return rsi, price
+        except Exception as e:
+            log.error(f"Error {symbol} en {url}: {e}")
+            continue
+    log.error(f"Todos los endpoints fallaron para {symbol}")
+    return None, None
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
