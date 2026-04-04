@@ -11,7 +11,7 @@ RSI_OVERSOLD     = int(os.getenv("RSI_OS", "20"))
 CHECK_INTERVAL   = int(os.getenv("CHECK_INTERVAL", "60"))
 RSI_PERIOD       = 14
 
-# Solo pares disponibles en Futuros de Binance (USDT-M Perpetual)
+# Pares disponibles en Futuros de Bybit (USDT Perpetual)
 PAIRS = [
     "BTCUSDT", "ETHUSDT", "BNBUSDT", "SOLUSDT", "XRPUSDT",
     "DOGEUSDT", "ADAUSDT", "AVAXUSDT", "SHIBUSDT", "DOTUSDT",
@@ -20,15 +20,15 @@ PAIRS = [
     "APTUSDT", "ARBUSDT", "OPUSDT", "NEARUSDT", "INJUSDT",
     "SUIUSDT", "TIAUSDT", "SEIUSDT", "PEPEUSDT", "WIFUSDT",
     "FETUSDT", "RNDRUSDT", "GRTUSDT", "SANDUSDT", "AXSUSDT",
-    "MANAUSDT", "CHZUSDT", "ENJUSDT", "GALAUSDT", "IMXUSDT",
+    "MANAUSDT", "CHZUSDT", "GALAUSDT", "IMXUSDT",
     "LDOUSDT", "AAVEUSDT", "MKRUSDT", "SNXUSDT", "CRVUSDT",
-    "COMPUSDT", "1INCHUSDT", "YFIUSDT", "SUSHIUSDT", "ALGOUSDT",
+    "COMPUSDT", "YFIUSDT", "SUSHIUSDT", "ALGOUSDT",
     "EGLDUSDT", "HBARUSDT", "ICPUSDT", "VETUSDT", "THETAUSDT",
-    "FTMUSDT", "ONEUSDT", "ZILUSDT", "NEOUSDT", "EOSUSDT",
-    "XTZUSDT", "DASHUSDT", "ZECUSDT", "XMRUSDT", "KAVAUSDT",
-    "FLOWUSDT", "MINAUSDT", "IOTXUSDT", "ANKRUSDT", "STXUSDT",
-    "KSMUSDT", "BANDUSDT", "OCEANUSDT", "MASKUSDT", "GMXUSDT",
-    "DYDXUSDT", "RAYUSDT", "SKLUSDT", "STORJUSDT",
+    "FTMUSDT", "ZILUSDT", "NEOUSDT", "EOSUSDT",
+    "XTZUSDT", "ZECUSDT", "KAVAUSDT",
+    "FLOWUSDT", "MINAUSDT", "ANKRUSDT", "STXUSDT",
+    "BANDUSDT", "OCEANUSDT", "MASKUSDT", "GMXUSDT",
+    "DYDXUSDT", "SKLUSDT", "STORJUSDT",
 ]
 
 last_state = {}
@@ -51,56 +51,43 @@ def calc_rsi(closes, period=14):
     if al == 0: return 100.0
     return 100.0 - (100.0 / (1.0 + ag / al))
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Accept": "application/json",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "X-Forwarded-For": "8.8.8.8",
-}
-
-# Endpoints en orden de prioridad (fallback automático)
-ENDPOINTS = [
-    "https://fapi.binance.com/fapi/v1/klines",
-    "https://api.binance.com/api/v3/klines",
-    "https://api1.binance.com/api/v3/klines",
-    "https://api2.binance.com/api/v3/klines",
-]
-
-def fetch_rsi_binance(symbol):
-    """Obtiene velas de Binance (5m) con headers y fallback automático."""
+def fetch_rsi_bybit(symbol):
+    """Obtiene velas de Bybit Futuros (5m) y calcula RSI. Sin bloqueos geográficos."""
+    url = "https://api.bybit.com/v5/market/kline"
     params = {
+        "category": "linear",   # Futuros USDT Perpetual
         "symbol": symbol,
-        "interval": "5m",
+        "interval": "5",        # 5 minutos
         "limit": 100
     }
-    for url in ENDPOINTS:
-        try:
-            r = requests.get(url, params=params, headers=HEADERS, timeout=10)
-            if r.status_code == 451:
-                log.warning(f"Bloqueo geo en {url} — probando siguiente endpoint...")
-                continue
-            if r.status_code == 429:
-                log.warning("Rate limit Binance — esperando 10s")
-                time.sleep(10)
-                return None, None
-            if r.status_code == 400:
-                log.warning(f"Par no existe: {symbol}")
-                return None, None
-            r.raise_for_status()
-            klines = r.json()
-            closes = [float(k[4]) for k in klines]
-            if len(closes) < RSI_PERIOD + 1:
-                return None, None
-            rsi = calc_rsi(closes)
-            price = closes[-1]
-            return rsi, price
-        except Exception as e:
-            log.error(f"Error {symbol} en {url}: {e}")
-            continue
-    log.error(f"Todos los endpoints fallaron para {symbol}")
-    return None, None
+    try:
+        r = requests.get(url, params=params, timeout=10)
+        if r.status_code == 429:
+            log.warning("Rate limit Bybit — esperando 10s")
+            time.sleep(10)
+            return None, None
+        r.raise_for_status()
+        data = r.json()
+
+        if data.get("retCode") != 0:
+            log.warning(f"Par no existe en Bybit: {symbol} — {data.get('retMsg')}")
+            return None, None
+
+        klines = data["result"]["list"]
+        if not klines or len(klines) < RSI_PERIOD + 1:
+            return None, None
+
+        # Bybit devuelve velas en orden descendente, hay que invertirlas
+        klines = list(reversed(klines))
+        closes = [float(k[4]) for k in klines]
+
+        rsi = calc_rsi(closes)
+        price = closes[-1]
+        return rsi, price
+
+    except Exception as e:
+        log.error(f"Error {symbol}: {e}")
+        return None, None
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -136,9 +123,9 @@ def check_coins():
     global alert_count
     log.info(f"--- Iniciando ciclo: {len(PAIRS)} pares ---")
     for symbol in PAIRS:
-        rsi, price = fetch_rsi_binance(symbol)
+        rsi, price = fetch_rsi_bybit(symbol)
         if rsi is None:
-            time.sleep(0.5)
+            time.sleep(0.3)
             continue
 
         new_state = "ob" if rsi >= RSI_OVERBOUGHT else "os" if rsi <= RSI_OVERSOLD else "neutral"
@@ -156,7 +143,7 @@ def check_coins():
     log.info(f"Ciclo completo. Alertas totales: {alert_count}")
 
 def main():
-    log.info("RSI HUNTER BOT — Binance Futuros Edition")
+    log.info("RSI HUNTER BOT — Bybit Futuros Edition")
     if "PON_TU" in TELEGRAM_TOKEN:
         log.error("❌ Falta configurar TELEGRAM_TOKEN y TELEGRAM_CHAT_ID")
         return
@@ -165,7 +152,7 @@ def main():
     send_telegram(
         f"🚀 <b>RSI HUNTER BOT INICIADO</b>\n"
         f"━━━━━━━━━━━━━━━━━━━━\n"
-        f"📡 Fuente: <b>Binance Futuros (USDT-M)</b>\n"
+        f"📡 Fuente: <b>Bybit Futuros (USDT Perpetual)</b>\n"
         f"🔍 Monitoreando: <b>{len(PAIRS)} pares</b>\n"
         f"⚙️ RSI sobreventa ≤ <b>{RSI_OVERSOLD}</b> | sobrecompra ≥ <b>{RSI_OVERBOUGHT}</b>\n"
         f"⏱️ Velas: <b>5 minutos</b>\n"
